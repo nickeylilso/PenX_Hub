@@ -10,40 +10,67 @@ export type CompStatus = "Upcoming" | "Ongoing" | "Completed";
 export type ThemePref = "light" | "dark" | "system";
 
 export interface Game { id: string; name: string; platform: Platform; category: string; banner: string; accent: string }
-export interface JoinedTeam { teamId: string; name: string; owner: string; country: string; logo: string }
+export interface JoinedTeam {
+  teamId: string; name: string; owner: string; country: string; logo: string;
+  ownerId?: string; ownerHandle?: string;
+}
 export interface JoinRequest { userId: string; teamId: string; name: string; owner: string; country: string; time: number }
 export interface ManualFixture { id: string; homeId: string; awayId: string; date: string; hs: number | null; as: number | null }
-export interface ProofShot { fixtureId: string; image: string; by: string; time: number; status: "pending" | "approved" | "disputed" }
+
+/** one side's typed result for a fixture (home–away goals) */
+export interface InputEntry { teamId: string; userId: string; userName: string; hs: number; as: number; time: number }
 
 export interface Competition {
   id: string; serial: string; name: string; gameId: string;
   type: CompType; format: CompFormat; capacity: number;
   access: "Public" | "Private";
   prize: boolean; entryFee: number; currency: string;
-  fixtureMode: "Auto" | "Manual"; resultMode: "Typed" | "Screenshot";
+  fixtureMode: "Auto" | "Manual";
+  /** "Input" = both teams type the result (must match), "Host" = host types results */
+  resultMode: "Input" | "Host";
   frequency: Frequency; startDate: string; startTime: string;
   description: string; rules: string;
   hostId: string; hostName: string; hostHandle: string;
   joined: JoinedTeam[]; requests: JoinRequest[];
-  manual: ManualFixture[]; proofs: ProofShot[];
+  manual: ManualFixture[];
   scores: Record<string, { hs: number; as: number }>;
+  inputs: Record<string, InputEntry[]>;   // typed results waiting to match
+  disputed: string[];                     // fixture ids where both inputs disagreed → host review
+  nudged: string[];                       // fixture ids already flagged to host after deadline
 }
 
 export interface Team { id: string; gameId: string; name: string; inGameId: string; color: string; logo: string | null }
+
+export interface FriendReq { fromId: string; fromName: string; fromHandle: string; fromCountry: string; time: number }
 export interface Account {
   id: string; firstName: string; lastName: string; handle: string; country: string;
   email: string; password: string; photo: string | null;
-  dob: string; phone: string; location: string; points: number; referral: string;
+  dob: string; phone: string; location: string; referral: string;
+  friends: string[]; incoming: FriendReq[]; sent: string[];
+  referredBy?: string; referralCount: number;
 }
+
 export interface Comment { id: string; userId: string; name: string; handle: string; country: string; photo: string | null; text: string; time: number }
 export interface Post {
   id: string; userId: string; name: string; handle: string; country: string; photo: string | null;
   text: string; image: string | null; time: number;
   likes: Record<string, string>; comments: Comment[];
 }
-export interface Msg { id: string; from: "me" | "them"; text?: string; image?: string | null; time: number }
+export interface Msg { id: string; from: "me" | "them"; text?: string; image?: string | null; friendlyId?: string; time: number }
 export interface ChatThread { id: string; userId: string; name: string; handle: string; country: string; photo: string | null; online: boolean; messages: Msg[]; unread: number }
-export interface Notif { id: string; kind: "join" | "host" | "profile" | "login" | "request" | "system"; text: string; time: number; read: boolean }
+export interface Notif { id: string; kind: "join" | "host" | "profile" | "login" | "request" | "system" | "friend" | "friendly" | "result"; text: string; time: number; read: boolean }
+
+/** friendly match arranged between two users inside a chat */
+export interface Friendly {
+  id: string; hostId: string; guestId: string;
+  gameId: string; device: Platform; date: string; // yyyy-mm-dd
+  status: "pending" | "accepted" | "played" | "cancelled";
+  hostInput: { h: number; g: number } | null;   // h = host-side goals, g = guest-side goals
+  guestInput: { h: number; g: number } | null;
+  mismatch: boolean;
+  score: { h: number; g: number } | null;
+  createdAt: number;
+}
 
 export const LOGO_URL = "https://i.supaimg.com/2f0d9563-6a2d-4bbf-9a4d-326f6ee8d0de/6dae097e-1b0b-40ba-b99c-ca21b3181ddb.png";
 
@@ -78,6 +105,12 @@ export function fmtDay(ts: number): string {
 export function fmtClock(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
+/** end of day (23:59:59) for a timestamp — the Input Result deadline */
+export function endOfDay(ts: number): number {
+  const d = new Date(ts); d.setHours(23, 59, 59, 999); return d.getTime();
+}
+export const friendlyDeadline = (f: Friendly) => endOfDay(new Date(`${f.date}T12:00:00`).getTime());
+export const friendlyExpired = (f: Friendly) => (f.status === "pending" || f.status === "accepted") && Date.now() > friendlyDeadline(f);
 
 /* ---------------- countries ---------------- */
 export const COUNTRIES: { code: string; name: string }[] = [
@@ -120,7 +153,6 @@ const TEAM_NAMES = [
   "Dar es Salaam Dolphins", "Addis Altitude", "Lusaka Lightning", "Harare Heat", "Windhoek Wanderers",
   "Freetown Stars", "Monrovia Mariners", "Bamako Bolts", "Niamey Nomads", "Banjul Beaches", "Praia Pirates",
 ];
-const OWNERS = ["Kwame B.", "Sipho D.", "Emre K.", "Jonas W.", "Mateo R.", "Hiro T.", "Omar S.", "Nia J.", "Pedro L.", "Amir F.", "Leo M.", "Zara H."];
 const LOGO_COLORS = ["#1d7544", "#0e5b63", "#8f2f4f", "#5b3a8f", "#8f5a1d", "#274d8f", "#a3341d", "#146c3d", "#b8860b", "#3d5a17"];
 
 export const BOTS: { id: string; name: string; handle: string; country: string }[] = [
@@ -133,6 +165,7 @@ export const BOTS: { id: string; name: string; handle: string; country: string }
   { id: "b7", name: "Jae Park", handle: "jae_kr", country: "KR" },
   { id: "b8", name: "Iva Novak", handle: "iva_goal", country: "DE" },
 ];
+export const botById = (id: string) => BOTS.find(b => b.id === id);
 
 /* ---------------- serial numbers ---------------- */
 export function makeSerial(seq: number): string {
@@ -255,7 +288,7 @@ function buildFixturesRaw(comp: Competition): Fx[] {
   if (!isGroup) {
     const double = comp.format === "Double Round Robin";
     const names = knockoutRoundNames(n);
-    let size = n; let roundIdx = 0; let matchday = 1;
+    let roundIdx = 0; let matchday = 1;
     const seeds = Array.from({ length: n }, (_, i) => i);
     let current = seeds;
     while (current.length > 1) {
@@ -274,7 +307,7 @@ function buildFixturesRaw(comp: Competition): Fx[] {
         }
         winners.push(w);
       });
-      matchday++; roundIdx++; current = winners; size /= 2;
+      matchday++; roundIdx++; current = winners;
     }
     if (double && out.length > 0) out.push(mk(`${comp.id}-GF`, "Grand Final", null, matchday, 1, null, null, "Upper Champion", "Lower Champion",
       fixtureDate(comp.startDate, comp.startTime, matchday - 1, comp.frequency)));
@@ -402,16 +435,86 @@ export function teamAggregate(teamId: string, comps: Competition[]) {
   return { mp, w, d, l, gf, ga, gd: gf - ga, cs, winRate: mp ? Math.round((w / mp) * 100) : 0, active, past };
 }
 
-/* ---------------- leaderboard ---------------- */
-export interface LbRow { teamId: string; name: string; country: string; logo: string; gameId: string; pts: number; gf: number; w: number; comp: string }
-export function leaderboard(comps: Competition[]): LbRow[] {
+/** last-5 form (most recent first) of a team inside a competition: "W" | "D" | "L" */
+export function lastFive(teamId: string, fxs: Fx[]): string[] {
+  return fxs
+    .filter(f => f.played && (f.homeId === teamId || f.awayId === teamId))
+    .sort((a, b) => b.date - a.date)
+    .slice(0, 5)
+    .map(f => {
+      const mine = f.homeId === teamId ? f.hs! : f.as!;
+      const theirs = f.homeId === teamId ? f.as! : f.hs!;
+      return mine > theirs ? "W" : mine < theirs ? "L" : "D";
+    });
+}
+/** last-5 head-to-head meetings between two teams inside a competition */
+export function h2hLastFive(aId: string, bId: string, fxs: Fx[]): Fx[] {
+  return fxs
+    .filter(f => f.played && ((f.homeId === aId && f.awayId === bId) || (f.homeId === bId && f.awayId === aId)))
+    .sort((x, y) => y.date - x.date)
+    .slice(0, 5);
+}
+
+/* ---------------- XP rules & leaderboard ----------------
+   WIN 20 · DRAW 10 · LOSS 5 · REFERRAL 10
+   FRIENDLIES → WIN 5 · DRAW 3 · LOSS 2                      */
+export const XP_RULES = { win: 20, draw: 10, loss: 5, referral: 10, fWin: 5, fDraw: 3, fLoss: 2 };
+
+export const botXP = (botId: string) => 240 + (hash(botId) % 620);
+
+export interface XPDb {
+  accounts: Account[]; teams: Team[]; comps: Competition[]; friendlies: Friendly[];
+}
+/** Compute a user's XP (works for the local account and for simulated bot users). */
+export function computeXP(db: XPDb, userId: string): number {
+  const bot = botById(userId);
+  if (bot) {
+    let xp = botXP(userId);
+    db.friendlies.filter(f => f.status === "played" && f.score && (f.hostId === userId || f.guestId === userId)).forEach(f => {
+      const my = f.hostId === userId ? f.score!.h : f.score!.g;
+      const op = f.hostId === userId ? f.score!.g : f.score!.h;
+      xp += my > op ? XP_RULES.fWin : my < op ? XP_RULES.fLoss : XP_RULES.fDraw;
+    });
+    return xp;
+  }
+  const acc = db.accounts.find(a => a.id === userId);
+  if (!acc) return 0;
+  let xp = 0;
+  const myTeamIds = db.teams.map(t => t.id);
+  db.comps.forEach(c => {
+    buildFixtures(c).filter(f => f.played && (myTeamIds.includes(f.homeId ?? "") || myTeamIds.includes(f.awayId ?? ""))).forEach(f => {
+      const home = myTeamIds.includes(f.homeId ?? "");
+      const mine = home ? f.hs! : f.as!;
+      const theirs = home ? f.as! : f.hs!;
+      xp += mine > theirs ? XP_RULES.win : mine < theirs ? XP_RULES.loss : XP_RULES.draw;
+    });
+  });
+  db.friendlies.filter(f => f.status === "played" && f.score && (f.hostId === userId || f.guestId === userId)).forEach(f => {
+    const my = f.hostId === userId ? f.score!.h : f.score!.g;
+    const op = f.hostId === userId ? f.score!.g : f.score!.h;
+    xp += my > op ? XP_RULES.fWin : my < op ? XP_RULES.fLoss : XP_RULES.fDraw;
+  });
+  if (acc.referredBy) xp += XP_RULES.referral;
+  xp += acc.referralCount * XP_RULES.referral;
+  return xp;
+}
+
+export const allUserIds = (db: XPDb) => [...db.accounts.map(a => a.id), ...BOTS.map(b => b.id)];
+export function worldRank(db: XPDb, userId: string): number {
+  const sorted = [...allUserIds(db)].sort((a, b) => computeXP(db, b) - computeXP(db, a));
+  return sorted.indexOf(userId) + 1;
+}
+
+/** team-based board used for the "By Game" leaderboard scope */
+export interface LbRow { teamId: string; name: string; country: string; logo: string; gameId: string; pts: number; gf: number; w: number }
+export function teamLeaderboard(comps: Competition[]): LbRow[] {
   const rows: LbRow[] = [];
   comps.forEach(c => {
     if (compStatus(c) !== "Ongoing") return;
     standingsRows(c.joined, buildFixtures(c)).forEach(r => {
       const ex = rows.find(x => x.teamId === r.teamId);
       if (ex) { ex.pts += r.pts; ex.gf += r.gf; ex.w += r.w; }
-      else rows.push({ teamId: r.teamId, name: r.name, country: r.country, logo: r.logo, gameId: c.gameId, pts: r.pts, gf: r.gf, w: r.w, comp: c.name });
+      else rows.push({ teamId: r.teamId, name: r.name, country: r.country, logo: r.logo, gameId: c.gameId, pts: r.pts, gf: r.gf, w: r.w });
     });
   });
   return rows.sort((a, b) => b.pts - a.pts || b.gf - a.gf);
@@ -429,11 +532,12 @@ function seedTeamsFor(compId: string, count: number, salt: number): JoinedTeam[]
     let ni = Math.floor(r() * TEAM_NAMES.length);
     while (used.has(ni)) ni = (ni + 1) % TEAM_NAMES.length;
     used.add(ni);
+    const b = BOTS[i % BOTS.length];
     out.push({
       teamId: `st-${compId}-${i}`, name: TEAM_NAMES[ni],
-      owner: OWNERS[Math.floor(r() * OWNERS.length)],
-      country: COUNTRIES[Math.floor(r() * COUNTRIES.length)].code,
+      owner: b.name, country: COUNTRIES[Math.floor(r() * COUNTRIES.length)].code,
       logo: LOGO_COLORS[Math.floor(r() * LOGO_COLORS.length)],
+      ownerId: b.id, ownerHandle: b.handle,
     });
   }
   return out;
@@ -442,28 +546,28 @@ const iso = (offsetDays: number) => new Date(Date.now() + offsetDays * 86400000)
 
 export function seedCompetitions(seqStart: number): Competition[] {
   const host = (i: number) => ({ hostId: BOTS[i].id, hostName: BOTS[i].name, hostHandle: BOTS[i].handle });
-  const defs: Array<Partial<Competition> & { name: string; gameId: string; type: CompType; format: CompFormat; capacity: number; joinedCount: number; start: number; frequency: Frequency; access?: "Public" | "Private"; prize?: boolean; fee?: number; desc: string }> = [
-    { name: "Premier Showdown League", gameId: "dls", type: "League", format: "Single Round Robin", capacity: 10, joinedCount: 10, start: -6, frequency: "Daily", prize: true, fee: 5, desc: "The flagship DLS league of PenX Hub. Winner takes the Golden Boot trophy and the prize pool. Respect the ref, respect the opponent." },
-    { name: "Kings Cup Mobile", gameId: "efootball", type: "Tournament", format: "Single Round Robin", capacity: 16, joinedCount: 16, start: -4, frequency: "Bi-daily", prize: true, fee: 3, desc: "Straight knockout glory. One leg, no second chances. Bring your best squad and stable connection." },
-    { name: "Golden Boot League", gameId: "fcmobile", type: "League", format: "Double Round Robin", capacity: 8, joinedCount: 6, start: 5, frequency: "Weekly", desc: "Home & away legs decide everything. Long-format league for patient tacticians of FC Mobile." },
-    { name: "UFL Masters Cup", gameId: "ufl", type: "Tournament", format: "Group Stage", capacity: 32, joinedCount: 32, start: -10, frequency: "Daily", prize: true, fee: 2, desc: "8 groups of 4. Top two qualify to the Round of 16. 3 points for a win, 1 for a draw. The road to the Final starts here." },
-    { name: "Continental PC League", gameId: "pes", type: "League", format: "Single Round Robin", capacity: 12, joinedCount: 12, start: -80, frequency: "Bi-weekly", desc: "Classic PES on PC. A completed season of grit, goals and glory — check the final standings." },
-    { name: "Pro Champions Cup", gameId: "eafc", type: "Tournament", format: "Single Round Robin", capacity: 8, joinedCount: 8, start: -32, frequency: "Daily", desc: "Console knockout on EA Sports FC. Quarter-finals to Final — a finished bracket with champions crowned." },
-    { name: "Invitational Sixes", gameId: "dls", type: "League", format: "Single Round Robin", capacity: 6, joinedCount: 3, start: 2, frequency: "Daily", access: "Private", desc: "Private invitational league. Request to join — the host reviews every request personally." },
-    { name: "eFootball Weekly Warm-up", gameId: "efootball", type: "League", format: "Single Round Robin", capacity: 4, joinedCount: 2, start: 8, frequency: "Weekly", desc: "A cosy 4-team warm-up league. Perfect for new managers finding their feet." },
+  const defs: Array<{ name: string; gameId: string; type: CompType; format: CompFormat; capacity: number; joinedCount: number; start: number; frequency: Frequency; access?: "Public" | "Private"; desc: string; results: "Input" | "Host" }> = [
+    { name: "Premier Showdown League", gameId: "dls", type: "League", format: "Single Round Robin", capacity: 10, joinedCount: 10, start: -6, frequency: "Daily", results: "Input", desc: "The flagship DLS league of PenX Hub. Winner takes the Golden Boot trophy. Respect the ref, respect the opponent." },
+    { name: "Kings Cup Mobile", gameId: "efootball", type: "Tournament", format: "Single Round Robin", capacity: 16, joinedCount: 16, start: -4, frequency: "Bi-daily", results: "Input", desc: "Straight knockout glory. One leg, no second chances. Bring your best squad and stable connection." },
+    { name: "Golden Boot League", gameId: "fcmobile", type: "League", format: "Double Round Robin", capacity: 8, joinedCount: 6, start: 5, frequency: "Weekly", results: "Host", desc: "Home & away legs decide everything. Long-format league for patient tacticians of FC Mobile." },
+    { name: "UFL Masters Cup", gameId: "ufl", type: "Tournament", format: "Group Stage", capacity: 32, joinedCount: 32, start: -10, frequency: "Daily", results: "Input", desc: "8 groups of 4. Top two qualify to the Round of 16. 3 points for a win, 1 for a draw. The road to the Final starts here." },
+    { name: "Continental PC League", gameId: "pes", type: "League", format: "Single Round Robin", capacity: 12, joinedCount: 12, start: -80, frequency: "Bi-weekly", results: "Host", desc: "Classic PES on PC. A completed season of grit, goals and glory — check the final standings." },
+    { name: "Pro Champions Cup", gameId: "eafc", type: "Tournament", format: "Single Round Robin", capacity: 8, joinedCount: 8, start: -32, frequency: "Daily", results: "Input", desc: "Console knockout on EA Sports FC. Quarter-finals to Final — a finished bracket with champions crowned." },
+    { name: "Invitational Sixes", gameId: "dls", type: "League", format: "Single Round Robin", capacity: 6, joinedCount: 3, start: 2, frequency: "Daily", access: "Private", results: "Input", desc: "Private invitational league. Request to join — the host reviews every request personally." },
+    { name: "eFootball Weekly Warm-up", gameId: "efootball", type: "League", format: "Single Round Robin", capacity: 4, joinedCount: 2, start: 8, frequency: "Weekly", results: "Host", desc: "A cosy 4-team warm-up league. Perfect for new managers finding their feet." },
   ];
   return defs.map((d, i) => ({
     id: `c${i + 1}`, serial: makeSerial(seqStart + i), name: d.name, gameId: d.gameId,
     type: d.type, format: d.format, capacity: d.capacity,
-    access: d.access ?? "Public", prize: d.prize ?? false, entryFee: d.fee ?? 0, currency: "USD",
-    fixtureMode: "Auto", resultMode: "Typed",
+    access: d.access ?? "Public", prize: false, entryFee: 0, currency: "USD",
+    fixtureMode: "Auto", resultMode: d.results,
     frequency: d.frequency, startDate: iso(d.start), startTime: "18:00",
     description: d.desc,
-    rules: "Standard PenX Fair-Play rules: results within 24h, screenshots on dispute, no account sharing, no time-wasting. Host decision is final on disputes.",
+    rules: "Standard PenX Fair-Play rules: input results before 11:59 PM on matchday, mismatches go to the host, no account sharing, no time-wasting. Host decision is final.",
     ...host(i % BOTS.length),
     joined: seedTeamsFor(`c${i + 1}`, d.joinedCount, i),
-    requests: [], manual: [], proofs: [], scores: {},
-  })) as Competition[];
+    requests: [], manual: [], scores: {}, inputs: {}, disputed: [], nudged: [],
+  }));
 }
 
 export function seedPosts(): Post[] {
@@ -471,7 +575,7 @@ export function seedPosts(): Post[] {
   return [
     {
       id: "p1", userId: "b1", name: "Kofi Mensah", handle: "kofi_plays", country: "GH", photo: null,
-      text: "Just hosted my first league on PenX Hub ⚽️ 10 teams, daily matchdays, and a real prize pool. The fixture generator did everything for me — GG!",
+      text: "Just hosted my first league on PenX Hub ⚽️ 10 teams, daily matchdays, and both captains type the result — no more screenshot drama. GG!",
       image: null, time: h(2),
       likes: { b2: "💯", b3: "⚽️", b4: "🔥" },
       comments: [
@@ -488,7 +592,7 @@ export function seedPosts(): Post[] {
     },
     {
       id: "p3", userId: "b7", name: "Jae Park", handle: "jae_kr", country: "KR", photo: null,
-      text: "Refer your squad to PenX Hub — every referral bumps your points. My whole clan is on here now 🌏",
+      text: "Refer your squad to PenX Hub — every referral is +10 XP, every friendly win is +5. My whole clan is climbing the world board 🌏",
       image: null, time: h(14),
       likes: { b8: "🌏", b2: "💥", b1: "💥" },
       comments: [],
@@ -510,42 +614,35 @@ const REPLIES = [
 ];
 export const botReply = (i: number) => REPLIES[i % REPLIES.length];
 
-export function seedChats(): ChatThread[] {
-  const h = (n: number) => Date.now() - n * 3600000;
-  return [
-    {
-      id: "ch1", userId: "b1", name: "Kofi Mensah", handle: "kofi_plays", country: "GH", photo: null, online: true, unread: 2,
-      messages: [
-        { id: "m1", from: "them", text: "Yo! You joining the Premier Showdown League?", time: h(3) },
-        { id: "m2", from: "me", text: "Thinking about it — which game is it on?", time: h(2.8) },
-        { id: "m3", from: "them", text: "Dream League Soccer, daily matchdays. Prize pool too 💰", time: h(2.5) },
-        { id: "m4", from: "them", text: "Create your team and jump in, slots are filling!", time: h(2.4) },
-      ],
-    },
-    {
-      id: "ch2", userId: "b2", name: "Amara Obi", handle: "amara_gg", country: "NG", photo: null, online: true, unread: 1,
-      messages: [
-        { id: "m5", from: "them", text: "Your defence last matchday was a wall 🥅", time: h(20) },
-        { id: "m6", from: "me", text: "Clean sheet mentality 😤", time: h(19.5) },
-        { id: "m7", from: "them", text: "Rematch this weekend? I'm hosting.", time: h(5) },
-      ],
-    },
-    {
-      id: "ch3", userId: "b5", name: "Leila Farouk", handle: "leila_fx", country: "EG", photo: null, online: false, unread: 0,
-      messages: [
-        { id: "m8", from: "me", text: "GG on the semi-final!", time: h(50) },
-        { id: "m9", from: "them", text: "GGs! The bracket feature here is so clean.", time: h(48) },
-      ],
-    },
-    {
-      id: "ch4", userId: "b7", name: "Jae Park", handle: "jae_kr", country: "KR", photo: null, online: true, unread: 3,
-      messages: [
-        { id: "m10", from: "them", text: "Bro the new rankings tab looks like FIFA cards 😎", time: h(8) },
-        { id: "m11", from: "them", text: "Your team is #4 in the world board", time: h(7.6) },
-        { id: "m12", from: "them", text: "Push for top 3!", time: h(7.5) },
-      ],
-    },
-  ];
+/* ---------------- chat threads ---------------- */
+export interface UserLike { id: string; name: string; handle: string; country: string; photo: string | null }
+export function threadForUser(u: UserLike): ChatThread {
+  return { id: `ch-${u.id}`, userId: u.id, name: u.name, handle: u.handle, country: u.country, photo: u.photo, online: hash(u.id) % 2 === 0, messages: [], unread: 0 };
 }
 
-export function initialPoints(): number { return 120; }
+export function seedChats(): ChatThread[] {
+  const h = (n: number) => Date.now() - n * 3600000;
+  const base = (id: string, msgs: Msg[], unread: number): ChatThread => ({ ...threadForUser(botById(id)!), id: `ch-${id}`, online: id !== "b5", messages: msgs, unread });
+  return [
+    base("b1", [
+      { id: "m1", from: "them", text: "Yo! You joining the Premier Showdown League?", time: h(3) },
+      { id: "m2", from: "me", text: "Thinking about it — which game is it on?", time: h(2.8) },
+      { id: "m3", from: "them", text: "Dream League Soccer, daily matchdays. Both sides type the result too.", time: h(2.5) },
+      { id: "m4", from: "them", text: "Create your team and jump in, slots are filling!", time: h(2.4) },
+    ], 2),
+    base("b2", [
+      { id: "m5", from: "them", text: "Your defence last matchday was a wall 🥅", time: h(20) },
+      { id: "m6", from: "me", text: "Clean sheet mentality 😤", time: h(19.5) },
+      { id: "m7", from: "them", text: "Rematch this weekend? I'm hosting.", time: h(5) },
+    ], 1),
+    base("b5", [
+      { id: "m8", from: "me", text: "GG on the semi-final!", time: h(50) },
+      { id: "m9", from: "them", text: "GGs! The bracket feature here is so clean.", time: h(48) },
+    ], 0),
+    base("b7", [
+      { id: "m10", from: "them", text: "Bro the new rankings tab looks like FIFA cards 😎", time: h(8) },
+      { id: "m11", from: "them", text: "Your team is climbing the world board", time: h(7.6) },
+      { id: "m12", from: "them", text: "Push for top 3!", time: h(7.5) },
+    ], 3),
+  ];
+}
