@@ -5,14 +5,14 @@ import { useEffect, useState } from "react";
 import type { Layer } from "./store";
 import { StoreProvider, takenHandles, useApp, validHandle, withNotif } from "./store";
 import type { Account } from "./data";
-import { COUNTRIES, initialPoints, uid } from "./data";
+import { BOTS, COUNTRIES, uid } from "./data";
 import { Field, Logo, TabBar, ToastHost } from "./ui";
 import { HomeScreen, LeaderboardScreen, MyFixturesScreen, NotifScreen, SearchScreen } from "./screens/Home";
 import { GameScreen, GamesScreen } from "./screens/Games";
-import { CompScreen } from "./screens/Competition";
+import { CompExploreScreen, CompInfoScreen } from "./screens/Competition";
 import { MyTeamsScreen, TeamDetailScreen } from "./screens/Teams";
 import { ChatScreen, MenuDrawer, UpdatesScreen } from "./screens/Updates";
-import { EditorScreen, FAQScreen, MyHostsScreen, ProfileScreen, SettingsScreen } from "./screens/Profile";
+import { EditorScreen, FAQScreen, FriendsScreen, MyHostsScreen, ProfileScreen, SettingsScreen, UserDetailsScreen } from "./screens/Profile";
 
 /* ---------------- splash ---------------- */
 function Splash({ leaving }: { leaving: boolean }) {
@@ -36,12 +36,15 @@ function Splash({ leaving }: { leaving: boolean }) {
 function AuthFlow() {
   const { db, set, toast, notify } = useApp();
   const [mode, setMode] = useState<"landing" | "register" | "login">("landing");
-  const [f, setF] = useState({ first: "", last: "", handle: "", country: "NG", email: "", pw: "", pw2: "", agree: false });
+  const [f, setF] = useState({ first: "", last: "", handle: "", country: "NG", email: "", pw: "", pw2: "", agree: false, refCode: "" });
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPw, setLoginPw] = useState("");
   const taken = takenHandles(db);
   const hOk = validHandle(f.handle.toLowerCase());
   const hTaken = taken.has(f.handle.toLowerCase());
+  const refCode = f.refCode.trim();
+  const refOwner = refCode ? db.accounts.find(a => a.referral.toLowerCase() === refCode.toLowerCase()) ?? null : null;
+  const refInvalid = refCode.length > 0 && !refOwner;
 
   const register = () => {
     if (!f.first.trim() || !f.last.trim()) return toast("Enter first and last name", "fa-triangle-exclamation");
@@ -50,14 +53,24 @@ function AuthFlow() {
     if (!/^\S+@\S+\.\S+$/.test(f.email)) return toast("Enter a valid email", "fa-envelope");
     if (f.pw.length < 6) return toast("Password needs 6+ characters", "fa-key");
     if (f.pw !== f.pw2) return toast("Passwords don't match", "fa-key");
+    if (refInvalid) return toast("That referral code doesn't exist — leave blank to skip", "fa-gift");
     if (!f.agree) return toast("Agree to the Privacy & Policies first", "fa-file-shield");
     const acc: Account = {
       id: uid(), firstName: f.first.trim(), lastName: f.last.trim(), handle: f.handle.toLowerCase(),
       country: f.country, email: f.email.trim(), password: f.pw, photo: null,
-      dob: "", phone: "", location: "", points: initialPoints(),
-      referral: `PENX-${f.handle.toUpperCase()}-26`,
+      dob: "", phone: "", location: "",
+      referral: `PENX-${f.handle.toUpperCase().slice(0, 8)}-${String(Math.floor(1000 + Math.random() * 9000))}`,
+      friends: [], sent: [], referralCount: 0, notifEnabled: true,
+      referredBy: refOwner?.id,
+      /* one pending request so the Friends screen is alive from day one */
+      incoming: [{ fromId: BOTS[3].id, fromName: BOTS[3].name, fromHandle: BOTS[3].handle, fromCountry: BOTS[3].country, time: Date.now() }],
     };
-    set(d => withNotif({ ...d, accounts: [...d.accounts, acc], session: acc.id, onboarded: true }, "login", `Welcome to PenX Hub, ${acc.firstName}! You're signed in.`));
+    set(d => withNotif({
+      ...d,
+      accounts: [...d.accounts.map(a => (refOwner && a.id === refOwner.id ? { ...a, referralCount: a.referralCount + 1 } : a)), acc],
+      session: acc.id, onboarded: true,
+    }, "login", `Welcome to PenX Hub, ${acc.firstName}! You're signed in.`));
+    if (refOwner) notify("system", `Referral code applied — ${refOwner.firstName} earns +10 XP, and so do you.`);
     toast("Account created — welcome to the pitch!", "fa-trophy");
   };
   const login = () => {
@@ -135,6 +148,12 @@ function AuthFlow() {
             <Field label="Password"><input type="password" className="input" value={f.pw} onChange={e => setF({ ...f, pw: e.target.value })} placeholder="6+ chars" /></Field>
             <Field label="Confirm"><input type="password" className="input" value={f.pw2} onChange={e => setF({ ...f, pw2: e.target.value })} placeholder="Repeat" /></Field>
           </div>
+          <Field label="Referral code (optional)" hint={refInvalid ? "Code not found — leave blank to skip." : refOwner ? `You were referred by ${refOwner.firstName} — both of you earn +10 XP!` : "Got a code from a friend? You both earn +10 XP."}>
+            <div className="relative">
+              <i className={`fa-solid fa-gift absolute left-4 top-1/2 -translate-y-1/2 ${refInvalid ? "text-[#e11d48]" : "text-[var(--gold)]"}`} />
+              <input className={`input !pl-11 ${refInvalid ? "!border-[#e11d48]" : ""}`} value={f.refCode} onChange={e => setF({ ...f, refCode: e.target.value })} placeholder="PENX-XXXXXX-0000" />
+            </div>
+          </Field>
           <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--card)] p-3.5">
             <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#146c3d]" checked={f.agree} onChange={e => setF({ ...f, agree: e.target.checked })} />
             <span className="text-[0.72rem] font-semibold text-[var(--mut)]">I agree to the <strong className="text-[var(--forest)]">Privacy and Policies</strong> and the PenX Fair-Play code.</span>
@@ -151,8 +170,11 @@ function AuthFlow() {
 function LayerView({ layer }: { layer: Layer }) {
   switch (layer.kind) {
     case "game": return <GameScreen gameId={layer.gameId} />;
-    case "comp": return <CompScreen compId={layer.compId} />;
+    case "comp": return <CompInfoScreen compId={layer.compId} />;
+    case "explore": return <CompExploreScreen compId={layer.compId} />;
     case "team": return <TeamDetailScreen teamId={layer.teamId} />;
+    case "user": return <UserDetailsScreen userId={layer.userId} />;
+    case "friends": return <FriendsScreen />;
     case "chat": return <ChatScreen chatId={layer.chatId} />;
     case "myteams": return <MyTeamsScreen />;
     case "notifs": return <NotifScreen />;

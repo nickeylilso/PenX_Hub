@@ -48,6 +48,7 @@ export interface Account {
   dob: string; phone: string; location: string; referral: string;
   friends: string[]; incoming: FriendReq[]; sent: string[];
   referredBy?: string; referralCount: number;
+  notifEnabled: boolean;
 }
 
 export interface Comment { id: string; userId: string; name: string; handle: string; country: string; photo: string | null; text: string; time: number }
@@ -622,7 +623,7 @@ export function threadForUser(u: UserLike): ChatThread {
 
 export function seedChats(): ChatThread[] {
   const h = (n: number) => Date.now() - n * 3600000;
-  const base = (id: string, msgs: Msg[], unread: number): ChatThread => ({ ...threadForUser(botById(id)!), id: `ch-${id}`, online: id !== "b5", messages: msgs, unread });
+  const base = (id: string, msgs: Msg[], unread: number): ChatThread => ({ ...threadForUser({ ...botById(id)!, photo: null }), id: `ch-${id}`, online: id !== "b5", messages: msgs, unread });
   return [
     base("b1", [
       { id: "m1", from: "them", text: "Yo! You joining the Premier Showdown League?", time: h(3) },

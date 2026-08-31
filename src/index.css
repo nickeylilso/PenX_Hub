@@ -52,6 +52,16 @@
 }
 
 html, body { height: 100%; }
+/* Responsive type scale — every rem-based size adapts from small phones to desktop */
+html { font-size: clamp(14.5px, 0.55vw + 12.6px, 19px); }
+@media (min-width: 768px) {
+  body {
+    background:
+      radial-gradient(900px 480px at 50% -120px, color-mix(in srgb, var(--forest) 16%, transparent), transparent 70%),
+      radial-gradient(700px 420px at 100% 110%, color-mix(in srgb, var(--gold) 10%, transparent), transparent 70%),
+      var(--bg);
+  }
+}
 body {
   background: var(--bg);
   color: var(--ink);

@@ -3,8 +3,8 @@
    ============================================================ */
 import { useMemo, useState } from "react";
 import type { CompFormat, CompType, Competition, Frequency, Platform } from "../data";
-import { BOTS, GAMES, compStatus, fmtDay, gameById, makeSerial, uid } from "../data";
-import { useApp, withNotif, withPoints } from "../store";
+import { BOTS, GAMES, fmtDay, gameById, makeSerial, uid } from "../data";
+import { useApp, withNotif } from "../store";
 import { Empty, Field, LayerScreen, Modal, Seg } from "../ui";
 import { CompCard } from "./Home";
 import { TeamFormModal } from "./Teams";
@@ -25,10 +25,9 @@ const Row = ({ children }: { children: React.ReactNode }) => <div className="mb-
 
 /* ---------------- Games page ---------------- */
 export function GamesScreen() {
-  const { db, user, pushLayer, toast, unread } = useApp();
+  const { db, pushLayer, unread } = useApp();
   const [platform, setPlatform] = useState<Platform>("Mobile");
   const [q, setQ] = useState("");
-  const [hosting, setHosting] = useState(false);
   const [gateGame, setGateGame] = useState<string | null>(null);
 
   const players = db.accounts.length + BOTS.length + 1240;
@@ -51,7 +50,7 @@ export function GamesScreen() {
   return (
     <div className="mx-auto max-w-md px-4 pb-32">
       <div className="sticky-bar -mx-4 px-4">
-        <div className="flex items-center justify-between py-3">
+        <div className="mx-auto flex max-w-md items-center justify-between py-3">
           <h1 className="font-display text-[1.05rem] uppercase tracking-wide">Games</h1>
           <button className="icon-btn relative" aria-label="Notifications" onClick={() => pushLayer({ kind: "notifs" })}>
             <i className="fa-solid fa-bell" />
@@ -82,22 +81,17 @@ export function GamesScreen() {
           <div className="space-y-3">{searchHits.map(c => <CompCard key={c.id} comp={c} onOpen={() => pushLayer({ kind: "comp", compId: c.id })} />)}</div>
         )}
 
-        {/* platform tabs + global host button */}
+        {/* platform tabs + games (hosting lives on each game's screen) */}
         {!q && (
           <>
             <div className="pt-1"><Seg options={[{ id: "Mobile", label: "Mobile" }, { id: "PC", label: "PC" }, { id: "Console", label: "Console" }]} value={platform} onChange={setPlatform} /></div>
-            <button onClick={() => (user ? setHosting(true) : toast("Sign in to host", "fa-lock"))} className="btn btn-gold w-full !py-3.5 text-[0.9rem]">
-              <i className="fa-solid fa-bullhorn" />Host League / Tournament
-            </button>
-
-            {/* games of the platform */}
             <div className="space-y-4">
               {GAMES.filter(g => g.platform === platform).map(g => {
                 const hosted = db.comps.filter(c => c.gameId === g.id).length;
                 return (
                   <button key={g.id} onClick={() => openGame(g.id)} className="group relative block h-36 w-full overflow-hidden rounded-2xl text-left shadow-xl transition-transform active:scale-[0.98]">
                     <img src={g.banner} alt={g.name} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" onError={e => ((e.target as HTMLImageElement).style.display = "none")} />
-                    <span className="absolute inset-0" style={{ background: `linear-gradient(105deg, rgb(6 40 23 / .92) 0%, rgb(6 40 23 / .55) 55%, rgb(6 40 23 / .15))` }} />
+                    <span className="absolute inset-0" style={{ background: "linear-gradient(105deg, rgb(6 40 23 / .92) 0%, rgb(6 40 23 / .55) 55%, rgb(6 40 23 / .15))" }} />
                     <span className="gold-stripes absolute inset-0" />
                     <span className="absolute inset-0 flex flex-col justify-between p-4 text-white">
                       <span className="flex items-center justify-between">
@@ -128,7 +122,6 @@ export function GamesScreen() {
       {gateGame && (
         <TeamGate gameId={gateGame} onClose={() => setGateGame(null)} onDone={() => { const id = gateGame; setGateGame(null); pushLayer({ kind: "game", gameId: id }); }} />
       )}
-      {hosting && <HostModal onClose={() => setHosting(false)} onHosted={id => { setHosting(false); pushLayer({ kind: "comp", compId: id }); }} onNeedTeam={() => setHosting(false)} />}
     </div>
   );
 }
@@ -155,7 +148,7 @@ function TeamGate({ gameId, onClose, onDone }: { gameId: string; onClose: () => 
   );
 }
 
-/* ---------------- Game screen (one game) ---------------- */
+/* ---------------- Game screen (one game) — + host button in the header ---------------- */
 export function GameScreen({ gameId }: { gameId: string }) {
   const { db, pushLayer } = useApp();
   const game = gameById(gameId)!;
@@ -163,7 +156,12 @@ export function GameScreen({ gameId }: { gameId: string }) {
   const [hosting, setHosting] = useState(false);
   const comps = db.comps.filter(c => c.gameId === gameId && (tab === "all" || c.type === tab));
   return (
-    <LayerScreen title={game.name} sub={`${game.platform} · ${game.category} · 1v1`} onDark>
+    <LayerScreen title={game.name} sub={`${game.platform} · ${game.category} · 1v1`} onDark
+      right={
+        <button className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--gold)] text-[#241a02] shadow-lg transition-transform active:scale-90" aria-label="Host a competition" onClick={() => setHosting(true)}>
+          <i className="fa-solid fa-plus text-lg" />
+        </button>
+      }>
       <div className="relative -mx-4 -mt-4 mb-4">
         <div className="relative h-36 overflow-hidden">
           <img src={game.banner} alt={game.name} className="h-full w-full object-cover" onError={e => ((e.target as HTMLImageElement).style.display = "none")} />
@@ -195,9 +193,8 @@ export function HostModal({ presetGameId, onClose, onHosted, onNeedTeam }: { pre
   const [format, setFormat] = useState<CompFormat>("Single Round Robin");
   const [access, setAccess] = useState<"Public" | "Private">("Public");
   const [prize, setPrize] = useState(false);
-  const [fee, setFee] = useState(5);
   const [fixtureMode, setFixtureMode] = useState<"Auto" | "Manual">("Auto");
-  const [resultMode, setResultMode] = useState<"Typed" | "Screenshot">("Typed");
+  const [resultMode, setResultMode] = useState<"Input" | "Host">("Input");
   const [freq, setFreq] = useState<Frequency>("Daily");
   const [date, setDate] = useState(new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10));
   const [time, setTime] = useState("18:00");
@@ -218,20 +215,23 @@ export function HostModal({ presetGameId, onClose, onHosted, onNeedTeam }: { pre
   const submit = () => {
     if (!name.trim()) return toast("Give your competition a name", "fa-triangle-exclamation");
     if (!user) return;
+    if (prize) return toast("Prize competitions are under maintenance — set prize to No", "fa-sack-dollar");
     if (!myTeam) { toast("Create your team for this game first", "fa-shield-halved"); onNeedTeam(); return; }
     const comp: Competition = {
       id: uid(), serial: makeSerial(db.serialSeq), name: name.trim(), gameId,
       type, format: fmtValid(format) ? format : "Single Round Robin", capacity: size,
-      access, prize, entryFee: prize ? fee : 0, currency: "USD",
+      access, prize: false, entryFee: 0, currency: "USD",
       fixtureMode, resultMode, frequency: freq, startDate: date, startTime: time,
       description: desc.trim() || "A community competition on PenX Hub.",
-      rules: "PenX Fair-Play rules apply: report results within 24h, screenshots settle disputes, host decision is final.",
+      rules: resultMode === "Input"
+        ? "Both teams must Input Result before 11:59 PM on matchday. Matching scores confirm the match; mismatches are forwarded to the host, whose decision is final."
+        : "The host types all results. Unplayed fixtures are flagged after 11:59 PM on matchday.",
       hostId: user.id, hostName: `${user.firstName} ${user.lastName}`, hostHandle: user.handle,
-      joined: [{ teamId: myTeam.id, name: myTeam.name, owner: `${user.firstName} ${user.lastName}`, country: user.country, logo: myTeam.logo ?? myTeam.color }],
-      requests: [], manual: [], proofs: [], scores: {},
+      joined: [{ teamId: myTeam.id, name: myTeam.name, owner: `${user.firstName} ${user.lastName}`, country: user.country, logo: myTeam.logo ?? myTeam.color, ownerId: user.id, ownerHandle: user.handle }],
+      requests: [], manual: [], scores: {}, inputs: {}, disputed: [], nudged: [],
     };
-    set(d => withPoints(withNotif({ ...d, comps: [comp, ...d.comps], serialSeq: d.serialSeq + 1 }, "host", `You hosted "${comp.name}" · ${comp.serial}`), 100));
-    toast("Competition hosted! +100 XP", "fa-trophy");
+    set(d => withNotif({ ...d, comps: [comp, ...d.comps], serialSeq: d.serialSeq + 1 }, "host", `You hosted "${comp.name}" · ${comp.serial}`));
+    toast("Competition hosted!", "fa-trophy");
     notify("system", `${comp.serial} is live in ${gameById(gameId)?.name}`);
     if (access === "Private") {
       window.setTimeout(() => {
@@ -296,23 +296,25 @@ export function HostModal({ presetGameId, onClose, onHosted, onNeedTeam }: { pre
         <Field label="Reward prize?">
           <Seg options={[{ id: "no", label: "No" }, { id: "yes", label: "Yes" }]} value={prize ? "yes" : "no"} onChange={v => setPrize(v === "yes")} />
           {prize && (
-            <div className="mt-3 rounded-xl border border-dashed border-[var(--gold)] bg-[color-mix(in_srgb,var(--gold)_8%,transparent)] p-3">
-              <div className="flex items-end gap-3">
-                <label className="flex-1"><span className="mb-1 block text-[0.64rem] font-extrabold uppercase text-[var(--mut)]">Entry fee</span>
-                  <input type="number" min={1} className="input" value={fee} onChange={e => setFee(Math.max(0, Number(e.target.value)))} /></label>
-                <label className="w-24"><span className="mb-1 block text-[0.64rem] font-extrabold uppercase text-[var(--mut)]">Currency</span>
-                  <span className="input flex items-center gap-1.5 opacity-70"><i className="fa-solid fa-lock text-[0.6rem]" />USD</span></label>
+            <div className="mt-3 flex items-start gap-3 rounded-xl border border-dashed border-[var(--gold)] bg-[color-mix(in_srgb,var(--gold)_10%,transparent)] p-3.5">
+              <i className="fa-solid fa-lock mt-0.5 text-[var(--gold)]" />
+              <div>
+                <p className="text-[0.74rem] font-extrabold text-[var(--ink)]">Prize competitions are under maintenance</p>
+                <p className="mt-0.5 text-[0.66rem] font-bold leading-relaxed text-[var(--mut)]">Entry fees and prize pools can't be hosted on PenX Hub right now. Switch back to <strong>No</strong> to create your competition — the prize engine opens soon.</p>
               </div>
-              <p className="mt-2 text-[0.7rem] font-extrabold text-[var(--forest)]"><i className="fa-solid fa-sack-dollar text-[var(--gold)]" /> Prize pool = fee × teams = ${fee * size} USD</p>
-              <p className="mt-1 text-[0.62rem] font-bold text-[var(--mut)]"><i className="fa-solid fa-circle-info" /> Prize payout tooling is locked for now — pools are tracked manually.</p>
             </div>
           )}
         </Field>
       </Row>
       <Row><Field label="Fixtures" hint="Auto-generate creates all fixtures once the required teams are confirmed. Manual lets you build head-to-heads yourself.">
         <Seg options={[{ id: "Auto", label: "Auto-generate" }, { id: "Manual", label: "Manual" }]} value={fixtureMode} onChange={setFixtureMode} /></Field></Row>
-      <Row><Field label="Upload results" hint="Typed: you enter scores. Screenshot: teams upload proof under each fixture — reviewed, disputes forwarded to you.">
-        <Seg options={[{ id: "Typed", label: "Host types" }, { id: "Screenshot", label: "Screenshots" }]} value={resultMode} onChange={setResultMode} /></Field></Row>
+      <Row>
+        <Field label="Match results" hint={resultMode === "Input"
+          ? "Input Result: BOTH teams type the score under each fixture before 11:59 PM on matchday. Matching scores confirm the match — mismatches are sent to you for review."
+          : "You type every result yourself from Host Tools."}>
+          <Seg options={[{ id: "Input", label: "Input match results" }, { id: "Host", label: "Host types results" }]} value={resultMode} onChange={setResultMode} />
+        </Field>
+      </Row>
       <Row>
         <Field label="Match frequency" hint="Bi-daily: 2 matchdays/day · Daily: 1/day · Weekly: 1/week · Bi-weekly: 2/week.">
           <div className="flex flex-wrap gap-2">
@@ -329,7 +331,7 @@ export function HostModal({ presetGameId, onClose, onHosted, onNeedTeam }: { pre
         </div>
         <p className="mt-1.5 text-[0.68rem] font-bold text-[var(--mut)]"><i className="fa-solid fa-flag-checkered text-[var(--forest)]" /> End date is set by frequency: <strong className="text-[var(--ink)]">{fmtDay(endTs)}</strong> · {estMatchdays(type, format, size)} matchdays</p>
       </Row>
-      <Row><Field label="Description & rules"><textarea className="input min-h-[92px]" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Format notes, fair-play rules, prize details…" /></Field></Row>
+      <Row><Field label="Description & rules"><textarea className="input min-h-[92px]" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Format notes, fair-play rules, schedule details…" /></Field></Row>
 
       <div className="card mb-4 flex items-center gap-3 border-dashed p-3">
         <i className="fa-solid fa-hashtag text-lg text-[var(--gold)]" />
@@ -340,13 +342,9 @@ export function HostModal({ presetGameId, onClose, onHosted, onNeedTeam }: { pre
         <span className="ml-auto chip bg-[color-mix(in_srgb,var(--forest)_12%,transparent)] text-[var(--forest)]">Searchable</span>
       </div>
 
-      {!myTeam && (
-        <div className="mb-4 rounded-xl border border-dashed border-[#e11d48] bg-[color-mix(in_srgb,#e11d48_8%,transparent)] p-3 text-[0.72rem] font-bold text-[var(--mut)]">
-          <i className="fa-solid fa-triangle-exclamation text-[#e11d48]" /> You have no {gameById(gameId)?.name} team yet — you'll create one to host (your team auto-joins).
-        </div>
-      )}
-      <button className="btn btn-forest w-full !py-3.5" onClick={submit}><i className="fa-solid fa-bullhorn" />Create Competition</button>
+      <button className="btn btn-gold w-full !py-4 text-[0.9rem]" onClick={submit} disabled={prize}>
+        <i className="fa-solid fa-bullhorn" />{prize ? "Prize hosting unavailable" : "Create Competition"}
+      </button>
     </Modal>
   );
 }
-

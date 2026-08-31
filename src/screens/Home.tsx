@@ -2,9 +2,9 @@
    PenX Hub — Home, Search, Notifications, Leaderboard, Fixtures
    ============================================================ */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Competition, CompStatus } from "../data";
-import { BOTS, GAMES, buildFixtures, compStatus, countryName, fmtDay, fmtClock, gameById, leaderboard, matchdayLabel, timeAgo } from "../data";
-import { useApp } from "../store";
+import type { Competition, Notif } from "../data";
+import { BOTS, GAMES, buildFixtures, compStatus, computeXP, countryName, fmtClock, fmtDay, gameById, matchdayLabel, timeAgo, worldRank } from "../data";
+import { identityOf, useApp } from "../store";
 import { Avatar, Empty, FlagBadge, LayerScreen, Logo, Modal, Seg, StatusChip, TeamLogo } from "../ui";
 
 /* ---------------- shared competition card ---------------- */
@@ -42,10 +42,10 @@ export function CompCard({ comp, onOpen }: { comp: Competition; onOpen: () => vo
 const SLIDES = [
   { key: "Compete", icon: "fa-trophy", title: "COMPETE", body: "Host or join leagues & tournaments across mobile, PC and console.", cta: "Open Games", tab: "games" as const },
   { key: "Community", icon: "fa-users", title: "COMMUNITY", body: "Chat with managers, share moments and react with stickers.", cta: "See Updates", tab: "updates" as const },
-  { key: "Refer", icon: "fa-user-plus", title: "REFER & RISE", body: "Invite your squad — every referral earns you points on PenX Hub.", cta: "Copy my code", tab: null },
+  { key: "Refer", icon: "fa-user-plus", title: "REFER & RISE", body: "Invite your squad — every referral earns +10 XP on PenX Hub.", cta: "Copy my code", tab: null },
 ];
 function PromoSlider() {
-  const { pushLayer, goTab, user, toast } = useApp();
+  const { goTab, user, toast } = useApp();
   const ref = useRef<HTMLDivElement>(null);
   const [idx, setIdx] = useState(0);
   const lastTouch = useRef(0);
@@ -126,13 +126,14 @@ export function HomeScreen() {
     return null;
   }, [db.comps, db.teams]);
 
+  const xp = user ? computeXP(db, user.id) : 0;
   const comps = db.comps.filter(c => compTab === "all" || compStatus(c) === compTab).slice(0, 5);
 
   return (
     <div className="mx-auto max-w-md px-4 pb-32">
       {/* sticky brand header */}
       <div className="sticky-bar -mx-4 px-4">
-        <div className="flex items-center justify-between py-3">
+        <div className="mx-auto flex max-w-md items-center justify-between py-3">
           <div className="flex items-center gap-2.5">
             <Logo size={34} />
             <span className="font-display text-[1.05rem] uppercase tracking-wide">PenX <span className="text-[var(--forest)]">Hub</span></span>
@@ -155,14 +156,15 @@ export function HomeScreen() {
               <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.22em] text-[var(--gold)]">{greet} ⚡</p>
               <h1 className="font-display mt-1 truncate text-[1.5rem] uppercase leading-none">{user?.firstName}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[0.72rem] font-bold text-white/80">
-                <span>@{user?.handle}</span>
+                <button className="underline decoration-white/30 underline-offset-2" onClick={() => user && pushLayer({ kind: "user", userId: user.id })}>@{user?.handle}</button>
                 <span className="flex items-center gap-1.5"><FlagBadge country={user?.country ?? ""} size={18} />{countryName(user?.country ?? "")}</span>
               </div>
             </div>
             <Avatar photo={user?.photo ?? null} name={`${user?.firstName} ${user?.lastName}`} country={user?.country} size={62} ring />
           </div>
           <div className="mt-4 flex items-center gap-2">
-            <span className="chip bg-[var(--gold)] text-[#241a02]"><i className="fa-solid fa-bolt" />{user?.points ?? 0} XP</span>
+            <span className="chip bg-[var(--gold)] text-[#241a02]"><i className="fa-solid fa-bolt" />{xp} XP</span>
+            {user && <span className="chip bg-white/10 text-white"><i className="fa-solid fa-earth-africa" />World #{worldRank(db, user.id)}</span>}
             <span className="chip bg-white/10 text-white"><i className="fa-solid fa-ranking-star" />Season 26</span>
           </div>
         </div>
@@ -246,8 +248,8 @@ export function HomeScreen() {
           <div className="space-y-3 text-[0.8rem] font-semibold text-[var(--mut)]">
             <p><strong className="text-[var(--ink)]">1 · Your data.</strong> Profile, teams and competitions are stored locally on your device. Nothing leaves your phone.</p>
             <p><strong className="text-[var(--ink)]">2 · Fair play.</strong> Result manipulation, account sharing or abusive conduct leads to removal from competitions.</p>
-            <p><strong className="text-[var(--ink)]">3 · Prizes.</strong> Entry fees build the prize pool (fee × teams). Payouts are coordinated by hosts; PenX Hub provides the ledger.</p>
-            <p><strong className="text-[var(--ink)]">4 · Disputes.</strong> Screenshots uploaded under a fixture are reviewed; disputes go to the host whose decision is final.</p>
+            <p><strong className="text-[var(--ink)]">3 · Prizes.</strong> Prize-based competitions are under maintenance and can't be hosted yet.</p>
+            <p><strong className="text-[var(--ink)]">4 · Disputes.</strong> In Input-Result competitions both teams type the score; mismatches are forwarded to the host, whose decision is final.</p>
           </div>
         </Modal>
       )}
@@ -283,7 +285,7 @@ export function MyFixturesScreen() {
           });
           return (
             <div key={c.id} className="card overflow-hidden">
-              <button onClick={() => pushLayer({ kind: "comp", compId: c.id })} className="pitch flex w-full items-center justify-between px-4 py-3 text-left">
+              <button onClick={() => pushLayer({ kind: "explore", compId: c.id })} className="pitch flex w-full items-center justify-between px-4 py-3 text-left">
                 <div>
                   <div className="font-display text-[0.82rem] uppercase text-white">{c.name}</div>
                   <div className="text-[0.62rem] font-bold text-white/70"><i className="fa-solid fa-hashtag text-[var(--gold)]" /> {c.serial} · {c.type}</div>
@@ -310,16 +312,17 @@ export function MyFixturesScreen() {
   );
 }
 
-/* ---------------- Search screen ---------------- */
+/* ---------------- Search screen (grouped: Users · Competitions · Games) ---------------- */
 export function SearchScreen() {
-  const { db, pushLayer, toast } = useApp();
+  const { db, pushLayer } = useApp();
   const [q, setQ] = useState("");
   const ql = q.trim().toLowerCase();
-  const users = ql ? [...BOTS, ...db.accounts.filter(a => a.id !== db.session).map(a => ({ id: a.id, name: `${a.firstName} ${a.lastName}`, handle: a.handle, country: a.country }))].filter(u => u.name.toLowerCase().includes(ql) || u.handle.toLowerCase().includes(ql)).slice(0, 6) : [];
+  const users = ql ? [...BOTS.map(b => ({ id: b.id, name: b.name, handle: b.handle, country: b.country, photo: null as string | null })), ...db.accounts.filter(a => a.id !== db.session).map(a => ({ id: a.id, name: `${a.firstName} ${a.lastName}`, handle: a.handle, country: a.country, photo: a.photo }))].filter(u => u.name.toLowerCase().includes(ql) || u.handle.toLowerCase().includes(ql)).slice(0, 6) : [];
   const comps = ql ? db.comps.filter(c => c.name.toLowerCase().includes(ql) || c.serial.toLowerCase().includes(ql)).slice(0, 6) : [];
   const games = ql ? GAMES.filter(g => g.name.toLowerCase().includes(ql)).slice(0, 6) : [];
+  const noResults = ql && users.length === 0 && comps.length === 0 && games.length === 0;
   return (
-    <LayerScreen title="Search" sub="Users, competitions, games & serials">
+    <LayerScreen title="Search" sub="Grouped by users · competitions · games">
       <div className="relative mb-4">
         <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-[var(--mut)]" />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Try a name, @handle or Co-serial…" className="input !pl-11" />
@@ -333,16 +336,16 @@ export function SearchScreen() {
       <div className="space-y-5">
         {users.length > 0 && (
           <section>
-            <h3 className="mb-2 text-[0.66rem] font-extrabold uppercase tracking-[0.2em] text-[var(--mut)]">Users</h3>
+            <h3 className="mb-2 text-[0.66rem] font-extrabold uppercase tracking-[0.2em] text-[var(--mut)]"><i className="fa-solid fa-user mr-1.5 text-[var(--forest)]" />Users</h3>
             <div className="card divide-y divide-[var(--line)]">
               {users.map(u => (
-                <button key={u.id} className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => toast(`Following @${u.handle}`, "fa-user-plus")}>
-                  <Avatar photo={null} name={u.name} country={u.country} size={40} />
+                <button key={u.id} className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => pushLayer({ kind: "user", userId: u.id })}>
+                  <Avatar photo={u.photo} name={u.name} country={u.country} size={40} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[0.82rem] font-extrabold">{u.name}</div>
-                    <div className="text-[0.68rem] font-bold text-[var(--mut)]">@{u.handle}</div>
+                    <div className="text-[0.68rem] font-bold text-[var(--mut)]">@{u.handle} · {computeXP(db, u.id)} XP</div>
                   </div>
-                  <span className="btn btn-ghost !px-3 !py-1.5 text-[0.68rem]">Follow</span>
+                  <span className="chip bg-[color-mix(in_srgb,var(--forest)_12%,transparent)] text-[var(--forest)]">View</span>
                 </button>
               ))}
             </div>
@@ -350,13 +353,13 @@ export function SearchScreen() {
         )}
         {comps.length > 0 && (
           <section>
-            <h3 className="mb-2 text-[0.66rem] font-extrabold uppercase tracking-[0.2em] text-[var(--mut)]">Competitions</h3>
+            <h3 className="mb-2 text-[0.66rem] font-extrabold uppercase tracking-[0.2em] text-[var(--mut)]"><i className="fa-solid fa-trophy mr-1.5 text-[var(--gold)]" />Competitions</h3>
             <div className="space-y-3">{comps.map(c => <CompCard key={c.id} comp={c} onOpen={() => pushLayer({ kind: "comp", compId: c.id })} />)}</div>
           </section>
         )}
         {games.length > 0 && (
           <section>
-            <h3 className="mb-2 text-[0.66rem] font-extrabold uppercase tracking-[0.2em] text-[var(--mut)]">Games</h3>
+            <h3 className="mb-2 text-[0.66rem] font-extrabold uppercase tracking-[0.2em] text-[var(--mut)]"><i className="fa-solid fa-gamepad mr-1.5 text-[var(--forest)]" />Games</h3>
             <div className="card divide-y divide-[var(--line)]">
               {games.map(g => (
                 <button key={g.id} className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => pushLayer({ kind: "game", gameId: g.id })}>
@@ -371,18 +374,48 @@ export function SearchScreen() {
             </div>
           </section>
         )}
-        {ql && users.length === 0 && comps.length === 0 && games.length === 0 && (
-          <Empty icon="fa-circle-question" title="No results" sub={`Nothing matches "${q}". Try a serial, team or username.`} />
-        )}
+        {noResults && <Empty icon="fa-circle-question" title="No results" sub={`Nothing matches "${q}". Try a serial, team or username.`} />}
       </div>
     </LayerScreen>
   );
 }
 
-/* ---------------- Notifications screen ---------------- */
-const NOTIF_ICON: Record<string, string> = {
-  join: "fa-user-plus", host: "fa-trophy", profile: "fa-user-pen", login: "fa-right-to-bracket", request: "fa-envelope-open-text", system: "fa-bullhorn",
+/* ---------------- Notifications screen (CLEAR + swipe-to-delete) ---------------- */
+const NOTIF_ICON: Record<Notif["kind"], string> = {
+  join: "fa-user-plus", host: "fa-trophy", profile: "fa-user-pen", login: "fa-right-to-bracket",
+  request: "fa-envelope-open-text", system: "fa-bullhorn", friend: "fa-user-group", friendly: "fa-gamepad", result: "fa-futbol",
 };
+function NotifRow({ n, onDelete }: { n: Notif; onDelete: () => void }) {
+  const [dx, setDx] = useState(0);
+  const start = useRef<{ x: number; y: number; horizontal: boolean | null }>({ x: 0, y: 0, horizontal: null });
+  return (
+    <div className="relative overflow-hidden">
+      <div className="absolute inset-0 flex items-center justify-end bg-[linear-gradient(90deg,#c0392b,#7b1e12)] px-5 text-white">
+        <i className="fa-solid fa-trash-can" />
+      </div>
+      <div
+        className="relative flex items-start gap-3 bg-[var(--card)] px-4 py-3.5 transition-transform"
+        style={{ transform: `translateX(${dx}px)`, transitionDuration: dx === 0 ? "200ms" : "0ms" }}
+        onPointerDown={e => { start.current = { x: e.clientX, y: e.clientY, horizontal: null }; }}
+        onPointerMove={e => {
+          const sx = e.clientX - start.current.x, sy = e.clientY - start.current.y;
+          if (start.current.horizontal === null && (Math.abs(sx) > 8 || Math.abs(sy) > 8)) start.current.horizontal = Math.abs(sx) > Math.abs(sy);
+          if (start.current.horizontal) setDx(Math.max(0, sx));
+        }}
+        onPointerUp={() => { if (dx > 90) onDelete(); else setDx(0); start.current.horizontal = null; }}
+        onPointerLeave={() => { setDx(0); start.current.horizontal = null; }}
+      >
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--forest)_12%,transparent)]">
+          <i className={`fa-solid ${NOTIF_ICON[n.kind]} text-[var(--forest)]`} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.8rem] font-bold leading-snug">{n.text}</p>
+          <p className="mt-0.5 text-[0.64rem] font-extrabold uppercase tracking-wide text-[var(--mut)]">{timeAgo(n.time)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 export function NotifScreen() {
   const { db, set } = useApp();
   useEffect(() => {
@@ -390,60 +423,79 @@ export function NotifScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <LayerScreen title="Notifications" sub="Joins, hosting, profile & sign-ins">
+    <LayerScreen title="Notifications" sub="Joins, hosting, friends & results"
+      right={db.notifs.length > 0 ? (
+        <button className="btn btn-ghost !px-3.5 !py-2 text-[0.66rem]" onClick={() => set(d => ({ ...d, notifs: [] }))}>
+          <i className="fa-solid fa-broom" />CLEAR
+        </button>
+      ) : undefined}>
       {db.notifs.length === 0 ? (
-        <Empty icon="fa-bell-slash" title="No notifications" sub="Activity from joins, hosting and profile changes lands here." />
+        <Empty icon="fa-bell-slash" title="No notifications" sub="Activity from joins, hosting, friends and results lands here. Swipe a row right to delete it." />
       ) : (
-        <div className="card divide-y divide-[var(--line)]">
-          {db.notifs.map(n => (
-            <div key={n.id} className="flex items-start gap-3 px-4 py-3.5">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--forest)_12%,transparent)]">
-                <i className={`fa-solid ${NOTIF_ICON[n.kind]} text-[var(--forest)]`} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[0.8rem] font-bold leading-snug">{n.text}</p>
-                <p className="mt-0.5 text-[0.64rem] font-extrabold uppercase tracking-wide text-[var(--mut)]">{timeAgo(n.time)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <>
+          <p className="mb-2 text-[0.64rem] font-bold text-[var(--mut)]"><i className="fa-solid fa-hand-pointer mr-1 text-[var(--forest)]" />Swipe a notification right to delete it.</p>
+          <div className="card divide-y divide-[var(--line)] overflow-hidden">
+            {db.notifs.map(n => (
+              <NotifRow key={n.id} n={n} onDelete={() => set(d => ({ ...d, notifs: d.notifs.filter(x => x.id !== n.id) }))} />
+            ))}
+          </div>
+        </>
       )}
     </LayerScreen>
   );
 }
 
-/* ---------------- Leaderboard screen ---------------- */
+/* ---------------- Leaderboard screen (ranked by XP) ---------------- */
 export function LeaderboardScreen() {
   const { db, user } = useApp();
   const [scope, setScope] = useState<"world" | "country" | "game">("world");
   const [gameF, setGameF] = useState<string>("dls");
-  const rows = useMemo(() => leaderboard(db.comps), [db.comps]);
-  const shown = rows.filter(r => (scope === "country" ? r.country === user?.country : scope === "game" ? r.gameId === gameF : true)).slice(0, 30);
+
+  const allUsers = useMemo(() => [
+    ...db.accounts.map(a => ({ id: a.id, name: `${a.firstName} ${a.lastName}`, handle: a.handle, country: a.country, photo: a.photo })),
+    ...BOTS.map(b => ({ id: b.id, name: b.name, handle: b.handle, country: b.country, photo: null as string | null })),
+  ], [db.accounts]);
+
+  /* which games each user competes in (own teams for accounts, owned squads in comps for bots) */
+  const gamesOf = (userId: string): Set<string> => {
+    const out = new Set<string>();
+    db.teams.forEach(t => { if (db.accounts.find(a => a.id === userId)) out.add(t.gameId); });
+    db.comps.forEach(c => c.joined.forEach(j => { if (j.ownerId === userId) out.add(c.gameId); }));
+    return out;
+  };
+
+  const rows = useMemo(() => {
+    const ranked = allUsers.map(u => ({ ...u, xp: computeXP(db, u.id) })).sort((a, b) => b.xp - a.xp);
+    return ranked.filter(u => {
+      if (scope === "country") return u.country === user?.country;
+      if (scope === "game") return gamesOf(u.id).has(gameF);
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allUsers, db.comps, db.teams, db.friendlies, scope, gameF, user?.country]);
+
   const medal = ["#d9a421", "#9ca3af", "#b45309"];
   return (
-    <LayerScreen title="Leaderboard" sub="World · Country · Game rankings">
+    <LayerScreen title="Leaderboard" sub="Ranked by XP — win 20 · draw 10 · loss 5 · referral 10">
       <div className="mb-3"><Seg options={[{ id: "world", label: "World" }, { id: "country", label: "My Country" }, { id: "game", label: "By Game" }]} value={scope} onChange={setScope} /></div>
       {scope === "game" && (
         <div className="mb-3"><Seg small options={GAMES.map(g => ({ id: g.id, label: g.name }))} value={gameF} onChange={setGameF} /></div>
       )}
-      {shown.length === 0 ? (
-        <Empty icon="fa-ranking-star" title="No ranked teams" sub="Rankings appear while competitions are ongoing." />
+      {rows.length === 0 ? (
+        <Empty icon="fa-ranking-star" title="No ranked managers" sub="Rankings appear as managers earn XP from matches." />
       ) : (
         <div className="card divide-y divide-[var(--line)]">
-          {shown.map((r, i) => (
-            <div key={r.teamId} className="flex items-center gap-3 px-4 py-3">
+          {rows.slice(0, 30).map((r, i) => (
+            <div key={r.id} className={`flex items-center gap-3 px-4 py-3 ${r.id === user?.id ? "bg-[color-mix(in_srgb,var(--gold)_8%,transparent)]" : ""}`}>
               <span className="font-display w-7 text-center text-[0.95rem]" style={{ color: i < 3 ? medal[i] : "var(--mut)" }}>{i + 1}</span>
-              <TeamLogo logo={r.logo || null} color="#1d7544" name={r.name} size={38} />
+              <Avatar photo={r.photo} name={r.name} country={r.country} size={40} />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[0.82rem] font-extrabold">{r.name}</div>
-                <div className="flex items-center gap-1.5 text-[0.64rem] font-bold text-[var(--mut)]">
-                  <FlagBadge country={r.country} size={13} />{countryName(r.country)}
-                  <span className="opacity-50">·</span>{gameById(r.gameId)?.name}
-                </div>
+                <div className="truncate text-[0.82rem] font-extrabold">{r.name}{r.id === user?.id && <span className="ml-1.5 chip !px-1.5 !py-0.5 bg-[var(--deep)] text-[var(--gold)]">You</span>}</div>
+                <div className="text-[0.64rem] font-bold text-[var(--mut)]">@{r.handle}</div>
               </div>
               <div className="text-right">
-                <div className="font-display text-[0.95rem] text-[var(--forest)]">{r.pts}<span className="text-[0.6rem] text-[var(--mut)]"> pts</span></div>
-                <div className="text-[0.62rem] font-bold text-[var(--mut)]">{r.gf} GF · {r.w} W</div>
+                <div className="font-display text-[0.95rem] text-[var(--forest)]">{r.xp}<span className="text-[0.6rem] text-[var(--mut)]"> XP</span></div>
+                <div className="text-[0.6rem] font-bold text-[var(--mut)]"><i className="fa-solid fa-earth-africa" /> #{i + 1}</div>
               </div>
             </div>
           ))}
@@ -453,4 +505,4 @@ export function LeaderboardScreen() {
   );
 }
 
-export type { CompStatus };
+export { identityOf };

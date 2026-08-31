@@ -4,7 +4,7 @@
 import { useRef, useState } from "react";
 import type { Team } from "../data";
 import { GAMES, gameById, teamAggregate, teamBusy, uid } from "../data";
-import { useApp, withNotif, withPoints } from "../store";
+import { useApp, withNotif } from "../store";
 import { Empty, Field, LayerScreen, Modal, TeamLogo } from "../ui";
 import { CompCard } from "./Home";
 
@@ -53,8 +53,8 @@ export function TeamFormModal({ gameId, teamId, onClose, onSaved }: { gameId?: s
       toast("Team updated", "fa-shield-halved");
     } else {
       const team: Team = { id: uid(), gameId: gId, name: name.trim(), inGameId: inGameId.trim() || "—", color, logo };
-      set(d => withPoints(withNotif({ ...d, teams: [...d.teams, team] }, "profile", `You created team "${team.name}" for ${gameById(gId)?.name}`), 20));
-      toast("Team created! +20 XP", "fa-shield-halved");
+      set(d => withNotif({ ...d, teams: [...d.teams, team] }, "profile", `You created team "${team.name}" for ${gameById(gId)?.name}`));
+      toast("Team created!", "fa-shield-halved");
     }
     notify("system", `${name.trim()} is ready for competitions.`);
     onClose();
@@ -159,7 +159,7 @@ export function MyTeamsScreen() {
 
 /* ---------------- Team Details screen ---------------- */
 export function TeamDetailScreen({ teamId }: { teamId: string }) {
-  const { db, pushLayer, toast } = useApp();
+  const { db, user, pushLayer, toast } = useApp();
   const team = db.teams.find(t => t.id === teamId);
   const [form, setForm] = useState(false);
   if (!team) return null;
@@ -182,6 +182,11 @@ export function TeamDetailScreen({ teamId }: { teamId: string }) {
           <div className="min-w-0 flex-1">
             <h2 className="font-display truncate text-[1.15rem] uppercase">{team.name}</h2>
             <p className="mt-0.5 text-[0.7rem] font-bold text-white/75"><i className="fa-solid fa-gamepad text-[var(--gold)]" /> {game?.name} · {game?.platform}</p>
+            {user && (
+              <button className="mt-1 text-[0.66rem] font-bold text-white/80 underline decoration-white/30 underline-offset-2" onClick={() => pushLayer({ kind: "user", userId: user.id })}>
+                <i className="fa-solid fa-user text-[var(--gold)]" /> Managed by {user.firstName} · @{user.handle}
+              </button>
+            )}
             <button className="mt-2 text-[0.66rem] font-extrabold uppercase tracking-wider text-[var(--gold)]"
               onClick={() => (busyComp ? toast("Team info is locked while in a competition", "fa-lock") : setForm(true))}>
               <i className="fa-solid fa-pen" /> {busyComp ? "Locked (in league)" : "Edit team"}

@@ -3,8 +3,8 @@
    ============================================================ */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { Account, Competition, Notif, Post, Team, ThemePref } from "./data";
-import { BOTS, initialPoints, seedChats, seedCompetitions, seedPosts, uid } from "./data";
+import type { Account, Competition, Friendly, Notif, Post, Team, ThemePref } from "./data";
+import { BOTS, seedChats, seedCompetitions, seedPosts, uid } from "./data";
 
 export interface DB {
   v: number;
@@ -14,20 +14,21 @@ export interface DB {
   comps: Competition[];
   posts: Post[];
   chats: ReturnType<typeof seedChats>;
+  friendlies: Friendly[];
   notifs: Notif[];
   theme: ThemePref;
   serialSeq: number;
   onboarded: boolean;
 }
 
-const KEY = "penxhub_db_v1";
+const KEY = "penxhub_db_v2";
 
 function freshDB(): DB {
   const seq = 1;
   return {
-    v: 1, accounts: [], session: null, teams: [],
+    v: 2, accounts: [], session: null, teams: [],
     comps: seedCompetitions(seq),
-    posts: seedPosts(), chats: seedChats(),
+    posts: seedPosts(), chats: seedChats(), friendlies: [],
     notifs: [], theme: "light", serialSeq: seq + 8, onboarded: false,
   };
 }
@@ -36,7 +37,7 @@ function loadDB(): DB {
     const raw = localStorage.getItem(KEY);
     if (!raw) return freshDB();
     const d = JSON.parse(raw) as DB;
-    if (!d || d.v !== 1) return freshDB();
+    if (!d || d.v !== 2) return freshDB();
     return d;
   } catch { return freshDB(); }
 }
@@ -44,11 +45,14 @@ function loadDB(): DB {
 /* ---------------- layers & modal stack (back-button aware) ---------------- */
 export type Layer =
   | { kind: "game"; gameId: string }
-  | { kind: "comp"; compId: string }
+  | { kind: "comp"; compId: string }        // competition description page
+  | { kind: "explore"; compId: string }     // fixtures / standings / bracket / rankings / teams / rules
   | { kind: "team"; teamId: string }
+  | { kind: "user"; userId: string }
+  | { kind: "friends" }
   | { kind: "myteams" } | { kind: "notifs" } | { kind: "search" } | { kind: "leaderboard" }
   | { kind: "fixtures" } | { kind: "editor" } | { kind: "settings" } | { kind: "myhosts" }
-  | { kind: "faq" } | { kind: "chat"; chatId: string } | { kind: "drawer" } | { kind: "explore" };
+  | { kind: "faq" } | { kind: "chat"; chatId: string } | { kind: "drawer" };
 
 /** Live stack of open modal close-fns — phone back / Esc closes topmost modal first. */
 export const modalStack: { close: () => void }[] = [];
@@ -77,12 +81,10 @@ export const useApp = () => {
 };
 
 /* db helper mutators (pure) */
-export const withNotif = (d: DB, kind: Notif["kind"], text: string): DB => ({
-  ...d, notifs: [{ id: uid(), kind, text, time: Date.now(), read: false }, ...d.notifs].slice(0, 60),
-});
-export const withPoints = (d: DB, delta: number): DB => {
-  if (!d.session) return d;
-  return { ...d, accounts: d.accounts.map(a => (a.id === d.session ? { ...a, points: a.points + delta } : a)) };
+export const withNotif = (d: DB, kind: Notif["kind"], text: string): DB => {
+  const acc = d.accounts.find(a => a.id === d.session);
+  if (acc && acc.notifEnabled === false) return d; // notifications toggled off in Settings
+  return { ...d, notifs: [{ id: uid(), kind, text, time: Date.now(), read: false }, ...d.notifs].slice(0, 60) };
 };
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -133,7 +135,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const closeTop = useCallback(() => {
     /* programmatic close → let popstate do the actual pop to stay in sync */
     if (pushedEntries.current > 0) {
-      try { window.history.back(); return; } catch { /* fall through */ }
+      pushedEntries.current--;
+      try { window.history.back(); return; } catch { pushedEntries.current++; }
     }
     setStack(s => s.slice(0, -1));
   }, []);
@@ -197,3 +200,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 /* small shared helpers used by screens */
 export const takenHandles = (db: DB) => new Set([...BOTS.map(b => b.handle.toLowerCase()), ...db.accounts.map(a => a.handle.toLowerCase())]);
 export const validHandle = (h: string) => /^[a-z0-9_]{3,15}$/.test(h);
+
+/** resolve any user id (account or bot) to a display identity */
+export function identityOf(db: DB, userId: string): { id: string; name: string; handle: string; country: string; photo: string | null; isBot: boolean } | null {
+  const acc = db.accounts.find(a => a.id === userId);
+  if (acc) return { id: acc.id, name: `${acc.firstName} ${acc.lastName}`, handle: acc.handle, country: acc.country, photo: acc.photo, isBot: false };
+  const bot = BOTS.find(b => b.id === userId);
+  if (bot) return { id: bot.id, name: bot.name, handle: bot.handle, country: bot.country, photo: null, isBot: true };
+  return null;
+}
